@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background: #eef2f7;
+    color: #1f2937;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    /* 移动端 App 手感：禁止下拉刷新式的橡皮筋过度滚动与横向偏移 */
+    overscroll-behavior: none;
+    /* 跟随系统字号，但不因横竖屏切换而擅自放大 */
+    -webkit-text-size-adjust: 100%;
+  }
+}
+
+@layer components {
+  /* 页面内容列：手机保持窄栏原样，平板/宽屏自动加宽并居中。
+     手机 max-w-md=448px → 平板 max-w-2xl=672px → 大屏 max-w-3xl=768px。
+     用原生 CSS 写，避免 @apply 对媒体查询变体的兼容差异。 */
+  .page {
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    max-width: 28rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  @media (min-width: 768px) {
+    .page {
+      max-width: 42rem;
+      padding-left: 1.5rem;
+      padding-right: 1.5rem;
+    }
+  }
+  @media (min-width: 1280px) {
+    .page {
+      max-width: 48rem;
+    }
+  }
+  /* 卡片 */
+  .card {
+    @apply rounded-3xl bg-white p-4 shadow-card border border-white/70;
+  }
+  /* 主按钮 / 次按钮 */
+  .btn-primary {
+    @apply rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 px-5 py-3 font-semibold text-white shadow-soft active:scale-[0.98] transition;
+  }
+  .btn-accent {
+    @apply rounded-2xl bg-gradient-to-br from-accent-500 to-accent-700 px-5 py-3 font-semibold text-white shadow-glow active:scale-[0.98] transition;
+  }
+  .btn-ghost {
+    @apply rounded-2xl bg-slate-100 px-5 py-3 font-medium text-slate-700 active:scale-[0.98] transition;
+  }
+  /* 筛选芯片 */
+  .chip {
+    @apply rounded-full px-3.5 py-1.5 text-sm transition active:scale-95;
+  }
+  .chip-on {
+    @apply bg-gradient-to-r from-brand-600 to-brand-800 text-white shadow-card;
+  }
+  .chip-off {
+    @apply bg-white text-slate-600 ring-1 ring-slate-200;
+  }
+  /* 分区标题（左侧青绿竖条） */
+  .section-title {
+    @apply mb-2 flex items-center gap-2 text-sm font-bold text-brand-800;
+  }
+  .section-title::before {
+    content: '';
+    @apply inline-block h-4 w-1 rounded-full bg-accent-500;
+  }
+  /* 音节/词块小筹 */
+  .pill {
+    @apply rounded-xl border border-slate-200 bg-white px-3 py-2 text-base text-slate-800;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+audio {
+  height: 36px;
+}

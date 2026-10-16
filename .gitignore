@@ -1,0 +1,27 @@
+# 依赖与构建产物
+node_modules/
+dist/
+release/
+.tmp_asar/
+*.asar
+
+# 安卓构建产物（由 npx cap sync / gradle 生成，不入库）
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+
+# 签名私钥：绝对不能公开！泄漏后任何人都能签出「航悦英语」的安装包冒充官方更新
+keystore/
+
+# 工作目录、截图、开发期临时脚本
+.workbuddy/
+shots/
+cleanup*.cjs
+
+# 杂项
+*.log
+.DS_Store
+Thumbs.db

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 自适应图标底色：品牌深蓝（前景是白色书本，底色必须深才看得见） -->
+    <color name="ic_launcher_background">#0F3857</color>
+</resources>
