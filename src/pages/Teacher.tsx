@@ -2,10 +2,9 @@ import { FormEvent, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 
-// 老师口令：打开“添加学生”前先验证，避免学生自行添加账号。
-// 真正的校验在服务端（hy_create_student 函数）里，这里这道只是拦住误操作；
-// 要改口令请改服务端函数里的那一行，同时把这里同步改掉。
-const TEACHER_PIN = 'wwl31460';
+// 老师口令只存在于**服务端**（hy_create_student 函数里），不写在 App 代码里——
+// 这个仓库是公开的，口令写在前端等于公开。这里只是先让老师进到添加界面，
+// 口令对不对由服务端在「添加学生」时判定，错了会明确提示。
 
 // 老师后台：用“用户名 + 密码”添加学生账号（邮箱由系统自动生成，无需填写）
 export default function Teacher() {
@@ -22,12 +21,13 @@ export default function Teacher() {
 
   const verifyPin = (e: FormEvent) => {
     e.preventDefault();
-    if (pin === TEACHER_PIN) {
-      setPinOk(true);
-      setErr('');
-    } else {
-      setErr('口令不正确');
+    if (!pin.trim()) {
+      setErr('请输入老师口令');
+      return;
     }
+    // 这里不做本地比对（口令不在 App 里），先进添加界面，真正的校验在服务端
+    setPinOk(true);
+    setErr('');
   };
 
   const submit = async (e: FormEvent) => {
