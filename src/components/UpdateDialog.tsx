@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import {
   APP_VERSION,
+  SITE_URL,
   assetForThisPlatform,
   openInBrowser,
   startUpdate,
@@ -26,7 +27,7 @@ export default function UpdateDialog({ remote, onClose }: Props) {
 
   const doUpdate = async () => {
     if (!asset) {
-      setErr('这个版本没有提供当前设备的安装包，请到仓库页面手动下载。');
+      setErr(`这个版本暂时没有提供当前设备的在线更新包，请打开下载页手动下载：${SITE_URL}`);
       setPhase('failed');
       return;
     }

@@ -1,10 +1,13 @@
 // auth.tsx —— 账号体系（React 版）
-// 职责：
-//  1) 维护登录态（user / ready），首次进入自动恢复会话；
-//  2) 提供 login(username, password) / logout()；
-//  3) 提供云端进度的读取与保存（loadRemote / saveRemote），由 progress.tsx 调用。
-// 学生用“用户名 + 密码”登录；内部把用户名拼成「用户名@hangyue.local」去对接 Supabase，
-// 所以后台建账号时邮箱要填「用户名@hangyue.local」。
+//
+// 后端已从 Supabase 换成国内可达的托管云服务（见 lib/cloud.ts）。云服务自带登录不支持
+// 「用户名 + 密码」，所以账号表由我们自己的服务端函数来管，App 只调这几个函数：
+//   hy_create_student    老师后台建号（老师口令在服务端校验）；同名即改密码
+//   hy_login             用户名 + 密码登录，成功后返回一张 180 天有效的票据(token)
+//   hy_restore           重开 App 时拿本地票据向云端核对登录态
+//   hy_logout            登出，作废票据
+//   hy_load/save_progress 学习进度读写（凭票据，不认用户名）
+// 本地只存票据和用户名，密码本身不落地。
 import {
   createContext,
   useContext,
@@ -14,15 +17,16 @@ import {
   useState,
   ReactNode,
 } from 'react';
-import { supabase } from './supabaseClient';
+import { cloud, networkHint } from './cloud';
 import type { ProgressData } from './progress';
 
 // 同步状态：local=未登录仅本地；loading=拉取中；saving=保存中；saved=已同步；error=同步失败
 export type SyncState = 'local' | 'loading' | 'saving' | 'saved' | 'error';
 
 interface AuthUser {
-  id: string;
-  name: string; // 显示名（默认取邮箱前缀，即用户名）
+  id: string; // 用户名的规范化形式
+  name: string; // 显示名（用户名的原始写法）
+  role: string; // teacher / student
 }
 
 interface AuthCtx {
@@ -31,131 +35,134 @@ interface AuthCtx {
   syncState: SyncState;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  // 老师后台用：按“用户名 + 密码”创建学生账号（邮箱由系统自动生成，老师无需填写）
-  createStudent: (username: string, password: string) => Promise<void>;
+  // 老师后台用：老师口令 + 用户名 + 密码创建（或重置）学生账号
+  createStudent: (username: string, password: string, pin: string) => Promise<{ isNew: boolean }>;
   loadRemote: () => Promise<ProgressData | null>;
   saveRemote: (data: ProgressData) => Promise<void>;
 }
 
 const Ctx = createContext<AuthCtx | null>(null);
 
-// 把“用户名”转成 Supabase 登录邮箱（底层必须是一个邮箱，但老师/学生都不用手填）：
-// - 纯英文/数字的用户名（如 xiaoming）→ 直接用 xiaoming@hangyue.local（后台可见、可读）
-// - 含中文等非 ASCII（如 小明）→ 邮箱不能含中文，改用用户名的编码生成稳定且合法的邮箱
-//   这样无论用户名是中文还是英文，登录时都能唯一对应到同一个账号。
-function toLoginEmail(u: string): string {
-  const name = String(u || '').trim();
-  if (!name) return '';
-  if (/^[\x20-\x7E]+$/.test(name)) return name + '@hangyue.local'; // 纯 ASCII（英文/数字/常用符号）
-  return 'u_' + utf8ToBase64Url(name) + '@hangyue.local'; // 中文等：编码成合法邮箱
-}
+const TOKEN_KEY = 'hy-token'; // 登录票据
+const NAME_KEY = 'hy-name'; // 用户名缓存（断网时也能显示名字）
 
-// UTF-8 字符串 → URL-safe Base64（浏览器/Electron 都有 btoa、TextEncoder）
-function utf8ToBase64Url(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-// 取显示名：优先用创建时存的真用户名（中文/英文都行），否则退回邮箱前缀
-function displayName(u: { email?: string | null; user_metadata?: Record<string, any> }): string {
-  const meta = u.user_metadata || {};
-  if (meta.username) return meta.username as string;
-  if (meta.display_name) return meta.display_name as string;
-  const email = u.email || '';
-  return email.split('@')[0] || '同学';
+// 调服务端函数：把返回统一成 {ok, ...} 的对象；网络异常抛中文提示
+async function callRpc(name: string, args: Record<string, unknown>): Promise<any> {
+  let res: any;
+  try {
+    // SDK 不传 schema 泛型时 rpc 的参数类型会被推成 never，这里按实际用法放开类型
+    const db = cloud.database as any;
+    res = await db.rpc(name, args);
+  } catch (e) {
+    throw new Error(networkHint(e));
+  }
+  if (res?.error) throw new Error(networkHint(res.error));
+  // 函数返回单个 jsonb → 直接是对象；返回集合时补一个空数组兜底
+  return Array.isArray(res?.data) ? (res.data[0] ?? null) : res.data;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>('local');
+  const tokenRef = useRef(''); // 当前票据，随登录/登出变化
 
-  // 进入页面：先看本地有没有已登录的会话（刷新/重开自动恢复）
+  // 进入页面：拿本地票据向云端核对一次，确认是否仍是登录态
   useEffect(() => {
     let active = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      const s = data.session;
-      if (s?.user) setUser({ id: s.user.id, name: displayName(s.user) });
-      setReady(true);
-    });
-    // 登录/登出/token 刷新都会触发，保持登录态最新
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session?.user) setUser({ id: session.user.id, name: displayName(session.user) });
-      else setUser(null);
-    });
+    (async () => {
+      const token = localStorage.getItem(TOKEN_KEY) || '';
+      if (!token) {
+        if (active) setReady(true);
+        return;
+      }
+      tokenRef.current = token;
+      try {
+        const r = await callRpc('hy_restore', { p_token: token });
+        if (!active) return;
+        if (r?.ok) {
+          localStorage.setItem(NAME_KEY, r.displayName);
+          setUser({ id: r.username, name: r.displayName, role: r.role });
+        } else {
+          // 票据真的失效了（过期/被登出）：清掉，回到未登录
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(NAME_KEY);
+          tokenRef.current = '';
+        }
+      } catch {
+        // 只是网络不通而已，不能把登录态清掉——先用本地缓存的用户名顶着，联网后自动恢复
+        const cached = localStorage.getItem(NAME_KEY);
+        if (active && cached) setUser({ id: cached, name: cached, role: '' });
+      } finally {
+        if (active) setReady(true);
+      }
+    })();
     return () => {
       active = false;
-      sub.subscription.unsubscribe();
     };
   }, []);
 
-  // 登录：学生用用户名+密码；成功后会触发上面的 onAuthStateChange，progress.tsx 自动拉取进度
   const login = useCallback(async (username: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email: toLoginEmail(username),
-      password,
-    });
-    if (error) throw error;
+    const r = await callRpc('hy_login', { p_username: username, p_password: password });
+    if (!r) throw new Error('登录服务没有返回结果，请稍后重试。');
+    if (!r.ok) throw new Error(r.error || '登录失败，请重试。');
+    tokenRef.current = r.token;
+    localStorage.setItem(TOKEN_KEY, r.token);
+    localStorage.setItem(NAME_KEY, r.displayName);
+    setUser({ id: r.username, name: r.displayName, role: r.role });
   }, []);
 
   const logout = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    const token = tokenRef.current;
+    tokenRef.current = '';
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(NAME_KEY);
+    setUser(null);
+    setSyncState('local');
+    // 本地已经算登出了；作废服务端票据失败也不影响使用（票据会自然过期）
+    if (token) {
+      try {
+        await callRpc('hy_logout', { p_token: token });
+      } catch {
+        /* 忽略 */
+      }
+    }
   }, []);
 
-  // 老师后台创建学生：用户名(中文/英文) + 密码；邮箱自动生成，昵称存真用户名
-  const createStudent = useCallback(async (username: string, password: string) => {
-    const email = toLoginEmail(username);
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { username, display_name: username } },
+  const createStudent = useCallback(async (username: string, password: string, pin: string) => {
+    const r = await callRpc('hy_create_student', {
+      p_pin: pin,
+      p_username: username,
+      p_password: password,
     });
-    if (error) throw error;
+    if (!r?.ok) throw new Error(r?.error || '添加失败，请重试。');
+    return { isNew: !!r.isNew };
   }, []);
 
-  // 从云端拉取当前用户的完整进度；未登录返回 null
+  // 从云端拉取当前账号的完整进度；没登录/云端还没记录都返回 null
   const loadRemote = useCallback(async (): Promise<ProgressData | null> => {
-    const { data: sess } = await supabase.auth.getUser();
-    const u = sess.user;
-    if (!u) return null;
+    if (!tokenRef.current) return null;
     setSyncState('loading');
-    const { data, error } = await supabase
-      .from('user_progress')
-      .select('data')
-      .eq('user_id', u.id)
-      .maybeSingle();
-    if (error) {
+    const r = await callRpc('hy_load_progress', { p_token: tokenRef.current });
+    if (!r?.ok) {
       setSyncState('error');
-      throw error;
+      throw new Error(r?.error || '读取云端进度失败');
     }
     setSyncState('saved');
-    return (data?.data as ProgressData) ?? null;
+    return (r.data as ProgressData) ?? null;
   }, []);
 
   // 把整份进度保存到云端；未登录直接返回（不写库）
   const saveRemote = useCallback(async (data: ProgressData) => {
-    const { data: sess } = await supabase.auth.getUser();
-    const u = sess.user;
-    if (!u) return;
+    if (!tokenRef.current) return;
     setSyncState('saving');
-    const { error } = await supabase.from('user_progress').upsert(
-      {
-        user_id: u.id,
-        display_name: u.email ? u.email.split('@')[0] : null,
-        current_grade: (data as any).currentGrade ?? null,
-        current_unit: (data as any).currentUnit ?? null,
-        data,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    );
-    if (error) {
+    const r = await callRpc('hy_save_progress', {
+      p_token: tokenRef.current,
+      p_data: data as unknown as Record<string, unknown>,
+    });
+    if (!r?.ok) {
       setSyncState('error');
-      throw error;
+      throw new Error(r?.error || '保存到云端失败');
     }
     setSyncState('saved');
   }, []);

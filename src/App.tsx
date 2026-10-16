@@ -58,7 +58,7 @@ function Shell() {
     if (manual) setToast('正在检查更新…');
     const remote = await fetchLatestVersion();
     if (!remote) {
-      setToast(manual ? '检查失败：连不上更新服务器（GitHub 在国内常访问不畅），可挂代理后再试' : '');
+      setToast(manual ? '检查失败：暂时连不上更新服务器。请检查网络后重试。' : '');
       return;
     }
     if (isNewer(remote)) {

@@ -23,8 +23,32 @@ src/                  前端源码（三个端共用）
 electron/main.cjs     桌面端主进程
 android/              Capacitor 生成的安卓工程
 scripts/              词库生成、打包、验证等辅助脚本
-version.json          更新清单，App 靠读它判断有没有新版本
+release/web/          发布到国内站点的下载页 + 更新清单 + 安装包
+version.json          更新清单的静态副本（给人看的；App 实际读云端接口，见「后端与账号」）
 ```
+
+## 后端与账号
+
+后端使用托管云服务（WorkBuddy Cloud Service），域名 `hangyue-english.app.workbuddy.host`，
+国内网络可直连——**不再依赖 Supabase**（原服务器在国内被阻断，导致登录一直失败）。
+
+云服务自带的登录方式不支持「用户名 + 密码」，因此账号表由我们自己的服务端函数管理，
+App 只通过 `cloud.database.rpc(...)` 调用它们：
+
+| 函数 | 作用 |
+|---|---|
+| `hy_login(用户名, 密码)` | 校验密码，返回一张 180 天有效的票据 token |
+| `hy_restore(token)` | 重开 App 时核对登录态 |
+| `hy_logout(token)` | 登出并作废票据 |
+| `hy_create_student(口令, 用户名, 密码)` | 老师后台建号；同名即改密码（找回密码用） |
+| `hy_load_progress(token)` / `hy_save_progress(token, 数据)` | 学习进度读写 |
+| `hy_latest_release()` | 下发最新版本清单（更新检查用） |
+
+数据库里 `accounts` / `progress` / `hy_sessions` / `hy_release` 四张表都开了 RLS 且
+**没有任何策略、不给 anon 授权**，只能通过上面这些 `SECURITY DEFINER` 函数访问；
+密码用随机盐 + SHA-256 存储，客户端只保存票据，不保存密码。
+
+更新检查必须走云端接口而不是静态文件：静态站不返回跨域响应头，App 里 `fetch` 会被浏览器拦掉。
 
 ## 本地开发
 
@@ -53,16 +77,21 @@ npx electron-builder --win portable
 1. 改版本号：`android/app/build.gradle` 的 `versionCode` **必须 +1**（否则手机拒绝覆盖安装），
    `versionName` 随意；同时改 `src/lib/update.ts` 里的 `APP_VERSION` / `APP_VERSION_CODE`。
 2. 按上面的步骤重新构建出 APK 和桌面版。
-3. 在 GitHub 上建一个 Release，标签形如 `v1.2`，把安装包传上去作为附件
-   （APK 命名 `hangyue-english-1.2.apk`，桌面版命名 `hangyue-english-1.2-windows.exe`）。
-4. 改仓库根目录的 `version.json`：`version`、`versionCode`、`notes`、以及两个下载链接和文件大小。
-5. 提交推送。之后已装的 App 一打开就会提示有新版本，也可以在「我的 → 检查更新」手动查。
+3. 把新 APK 放进 `release/web/`（命名 `hangyue-english-<版本>.apk`），
+   同步更新 `release/web/version.json` 与根目录 `version.json`，
+   再把 `release/web/` 重新发布一次（`workbuddy_sites_deploy`，`directory` 指向该目录）。
+4. 在云数据库里更新更新清单（App 真正读的是它）：
+   ```sql
+   UPDATE hy_release SET payload = '<新的清单 JSON>'::jsonb, updated_at = now() WHERE id = 'latest';
+   ```
+5. 推送仓库。之后已装的 App 一打开就会提示有新版本，也可以在「我的 → 检查更新」手动查。
 
-> `version.json` 是更新功能的唯一开关。没推新版本时把它保持与当前版本一致，
-> App 就会显示「已是最新版本」。
+> 发版时 `hy_release.payload.versionCode` 和 `src/lib/update.ts` 的 `APP_VERSION_CODE`
+> 要保持一致；没推新版本时让两者等于当前版本，App 就会显示「已是最新版本」。
 
 ## 说明
 
-- 云同步目前在部分网络环境下不可直连，App 会在登录失败时自动检测并提示具体原因；
-  不登录也可以正常使用，学习记录都保存在本机。
+- 后端在国内可直连，登录、同步、检查更新都不需要代理。
+- 不登录也可以正常使用，学习记录都保存在本机；登录后本机进度会自动传上去，
+  换设备登录同一账号即可续学。
 - 签名密钥不上传仓库，请离线妥善保管。

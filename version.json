@@ -1,16 +1,11 @@
 {
-  "version": "1.1",
-  "versionCode": 2,
+  "version": "1.2",
+  "versionCode": 3,
   "publishedAt": "2026-10-16",
-  "notes": "修复安卓端读单词、读文档完全没有声音的问题\n登录失败时自动检测网络，明确区分「连不上云端」和「账号密码错误」\n新增「检查更新」：以后发布新版本，打开 App 就会提示，一点即可下载安装",
+  "notes": "修复：登录一直提示「连不上云端服务器」。后端整体换成国内可直连的服务器，不用再挂代理或 VPN。\n修复：检查更新连不上 GitHub。更新清单和安装包改放到国内站点，点「立即更新」就能直接下载。\n新增：学生忘记密码时，老师在「老师后台」用同一个用户名再添加一次，即可把密码改成新的。\n注意：换了后端，旧服务器上的账号无法迁移，需要老师在「老师后台」重新添加一次学生账号。",
   "android": {
-    "url": "https://github.com/Wwl31460/hangyue_English/releases/download/v1.1/hangyue-english-1.1.apk",
-    "fileName": "hangyue-english-1.1.apk",
-    "size": 3640075
-  },
-  "windows": {
-    "url": "https://github.com/Wwl31460/hangyue_English/releases/download/v1.1/hangyue-english-1.1-windows.zip",
-    "fileName": "hangyue-english-1.1-windows.zip",
-    "size": 113297807
+    "url": "https://hangyue-english.app.workbuddy.host/hangyue-english-1.2.apk",
+    "fileName": "hangyue-english-1.2.apk",
+    "size": 3602811
   }
 }

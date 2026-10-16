@@ -203,6 +203,8 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
   const { ready, user, loadRemote, saveRemote } = useAuth();
   const loadedRef = useRef(false); // 本次登录是否已从云端拉取过（避免重复拉取）
   const skipSaveRef = useRef(false); // 刚拉完云端数据，先别立刻回写
+  const dataRef = useRef(data); // 让异步回调能读到「最新的进度」
+  dataRef.current = data;
 
   useEffect(() => {
     save(KEY, data);
@@ -220,7 +222,11 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
       loadedRef.current = true;
       loadRemote()
         .then((remote) => {
-          if (!remote) return;
+          if (!remote) {
+            // 云端还没有这个账号的记录（换了后端后第一次登录）：把本机已有进度传上去，避免丢数据
+            void saveRemote(dataRef.current).catch(() => {});
+            return;
+          }
           const merged = normalize({ ...fresh(), ...remote });
           skipSaveRef.current = true; // 刚拉下来的数据无需立即回写
           setData(merged);
@@ -230,7 +236,7 @@ export function ProgressProvider({ children }: { children: ReactNode }) {
         });
     }
     if (!user) loadedRef.current = false;
-  }, [ready, user, loadRemote]);
+  }, [ready, user, loadRemote, saveRemote]);
 
   // 学习中改动进度：登录态下防抖保存到云端（未登录不写库）
   useEffect(() => {

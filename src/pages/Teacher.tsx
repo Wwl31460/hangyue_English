@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 
 // 老师口令：打开“添加学生”前先验证，避免学生自行添加账号。
-// 想改口令就改下面这个常量（建议换个只有你知道的 4 位以上数字）。
+// 真正的校验在服务端（hy_create_student 函数）里，这里这道只是拦住误操作；
+// 要改口令请改服务端函数里的那一行，同时把这里同步改掉。
 const TEACHER_PIN = 'wwl31460';
 
 // 老师后台：用“用户名 + 密码”添加学生账号（邮箱由系统自动生成，无需填写）
@@ -38,13 +39,18 @@ export default function Teacher() {
     if (password !== confirm) return setErr('两次输入的密码不一致');
     setBusy(true);
     try {
-      await createStudent(username.trim(), password);
-      setMsg(`已添加学生：${username.trim()}`);
+      // 口令交给服务端校验（前端这道只是拦一下误操作）；同名即改密码
+      const r = await createStudent(username.trim(), password, pin);
+      setMsg(
+        r.isNew
+          ? `已添加学生：${username.trim()}`
+          : `「${username.trim()}」已存在，已把密码改成新密码`,
+      );
       setUsername('');
       setPassword('');
       setConfirm('');
-    } catch {
-      setErr('添加失败：该用户名可能已存在，或网络异常，请重试');
+    } catch (e: any) {
+      setErr(String(e?.message || '添加失败，请重试'));
     } finally {
       setBusy(false);
     }
@@ -111,6 +117,8 @@ export default function Teacher() {
           </button>
           <p className="mt-3 text-center text-xs text-slate-400">
             添加后，学生打开 App 用「用户名 + 密码」即可登录。
+            <br />
+            同一个用户名再添加一次，就是把他的密码改成新密码（学生忘密码时用得上）。
           </p>
         </form>
       )}

@@ -1,20 +1,20 @@
 // update.ts —— 版本号 + 在线检查更新 + 一键下载安装
 //
-// 更新清单放在 GitHub 仓库根目录的 version.json。App 每次打开、以及
-// 「我的 → 检查更新」都会去读一次；有新版本就弹提示，点一下就能下载安装。
+// 更新清单由**云端接口**（hy_latest_release 函数）下发，安装包放在国内站点上。
+// 为什么不直接把 version.json 当静态文件抓：静态站不返回跨域头，App 里用 fetch 读它
+// 会被浏览器直接拦掉；而云端接口是跨域可用的，安卓 WebView / 桌面版都能正常读到。
 //
-// 仓库在国外，国内网络访问 raw.githubusercontent.com 经常被阻断（GitHub 主站也时好时坏），
-// 所以下面准备了几个镜像地址**并发**去试，谁先通用谁；全都失败就当作「暂时查不到更新」，
-// 静默跳过、绝不打扰使用。
+// 下载安装包本身不受跨域限制（安卓交给系统下载器，桌面版交给浏览器），所以二进制走静态站。
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { cloud } from './cloud';
 
 /** 当前版本：发新版时这里和 android/app/build.gradle 的 versionCode 要一起改 */
-export const APP_VERSION = '1.1';
-export const APP_VERSION_CODE = 2;
+export const APP_VERSION = '1.2';
+export const APP_VERSION_CODE = 3;
 
-export const REPO_SLUG = 'Wwl31460/hangyue_English';
-export const REPO_URL = `https://github.com/${REPO_SLUG}`;
+/** 应用站点（更新说明页 + 安装包下载地址），国内直连可达 */
+export const SITE_URL = 'https://hangyue-english.app.workbuddy.host';
 
 export interface UpdateAsset {
   url: string; // 安装包下载直链
@@ -31,53 +31,18 @@ export interface RemoteVersion {
   windows?: UpdateAsset;
 }
 
-// 清单地址，并发尝试
-const MANIFEST_URLS = [
-  `https://raw.githubusercontent.com/${REPO_SLUG}/main/version.json`,
-  `https://cdn.jsdelivr.net/gh/${REPO_SLUG}@main/version.json`,
-  `https://github.com/${REPO_SLUG}/raw/main/version.json`,
-];
-
-const TIMEOUT_MS = 8000;
-
-async function fetchManifest(url: string): Promise<RemoteVersion> {
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: ctl.signal, cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = (await res.json()) as RemoteVersion;
-    if (!data || typeof data.versionCode !== 'number') throw new Error('清单格式不正确');
-    return data;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// 并发请求，取第一个成功的结果；全部失败返回 null
-function firstSuccess<T>(tasks: Promise<T>[]): Promise<T | null> {
-  return new Promise((resolve) => {
-    let pending = tasks.length;
-    let settled = false;
-    for (const t of tasks) {
-      t.then((v) => {
-        if (!settled) {
-          settled = true;
-          resolve(v);
-        }
-      }).catch(() => {
-        if (--pending === 0 && !settled) {
-          settled = true;
-          resolve(null);
-        }
-      });
-    }
-  });
-}
-
-/** 去仓库读最新版本清单；网络不通时返回 null */
+/** 去云端读最新版本清单；网络不通、没发布过都返回 null（静默跳过，不打扰使用） */
 export async function fetchLatestVersion(): Promise<RemoteVersion | null> {
-  return firstSuccess(MANIFEST_URLS.map((u) => fetchManifest(u)));
+  try {
+    // SDK 不传 schema 泛型时 rpc 的参数类型会被推成 never，这里按实际用法放开类型
+    const res: any = await (cloud.database as any).rpc('hy_latest_release', {});
+    if (res?.error) return null;
+    const data = Array.isArray(res?.data) ? res.data[0] : res.data;
+    if (!data || typeof data.versionCode !== 'number') return null;
+    return data as RemoteVersion;
+  } catch {
+    return null;
+  }
 }
 
 /** 云端版本是否比本机新 */
