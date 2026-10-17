@@ -109,7 +109,10 @@ export default function WordStudy() {
             {w.image ?? '🔤'}
           </span>
           <div className="min-w-0">
-            <div className="truncate text-3xl font-extrabold text-brand-900">{w.word}</div>
+            {/* 长单词/词组要能换行显示完，不能加 truncate（否则竖屏下末尾变省略号） */}
+            <div className="break-words text-2xl font-extrabold leading-tight text-brand-900 sm:text-3xl">
+              {w.word}
+            </div>
             {w.phonetic && <div className="text-sm text-slate-500">{w.phonetic}</div>}
             <div className="mt-1 flex flex-wrap items-center gap-2">
               {w.pos && (

@@ -53,10 +53,14 @@ export default function Login() {
       <form onSubmit={submit} className="card mt-8 animate-fadeup">
         <label className="section-title mb-0">用户名</label>
         <input
+          type="text"
+          inputMode="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="老师给的用户名，如 xiaoming"
+          placeholder="老师给的用户名，如 小明 或 xiaoming"
           autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
           className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-400"
         />
 

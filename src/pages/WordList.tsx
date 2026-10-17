@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { words } from '../data/words';
 import { gradeById, unitTitles } from '../data/grades';
 import { useProgress } from '../lib/progress';
+import { useAuth } from '../lib/auth';
 
 // 某年级的导航：
 // - 无 unit 参数 -> 显示该年级的单元列表（Unit 1..N），点单元进入单词
@@ -13,12 +14,27 @@ export default function WordList() {
   const [params] = useSearchParams();
   const nav = useNavigate();
   const p = useProgress();
+  const { canOpen } = useAuth(); // 老师未开放的年级禁止进入
   // 进入某个单元即记为“当前学习单元”，登录后可用于首页续学 / 云端同步
   useEffect(() => {
     if (gid && uid) p.setCurrent(gid, Number(uid));
   }, [gid, uid, p]);
   const stage = gid ? gradeById[gid] : undefined;
   if (!stage) return <div className="p-6 text-slate-500">未找到该年级。</div>;
+
+  // 老师没开放这个年级：即使从收藏/续学直接进来也挡住
+  if (!canOpen(gid!)) {
+    return (
+      <div className="page pb-6 pt-16 text-center">
+        <div className="text-5xl">🔒</div>
+        <p className="mt-3 text-sm font-semibold text-slate-700">{stage.label} 还没开放</p>
+        <p className="mt-1 text-xs text-slate-400">需要学习这一册，请让老师在「老师后台」里给你开放。</p>
+        <button onClick={() => nav('/vocab')} className="btn-primary mt-5 !px-6 !py-2.5 text-sm">
+          返回选年级
+        </button>
+      </div>
+    );
+  }
 
   const gradeWords = words.filter((w) => w.grade === gid);
   const units = [...new Set(gradeWords.map((w) => w.unit ?? 0))].sort((a, b) => a - b);

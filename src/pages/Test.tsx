@@ -4,6 +4,7 @@ import { words } from '../data/words';
 import { grades, gradeById, unitTitles, GradeStage } from '../data/grades';
 import { Word } from '../types';
 import { useProgress } from '../lib/progress';
+import { useAuth } from '../lib/auth';
 import { speak } from '../lib/tts';
 import { recognizeOnce, speechRecognitionSupported, speakPassed, normWord, editDistance } from '../lib/speech';
 
@@ -113,6 +114,7 @@ export default function Test() {
 // ---- 年级选择 ----
 function GradePick({ nav, p }: { nav: (s: string) => void; p: ReturnType<typeof useProgress> }) {
   const SECTION_ORDER: GradeStage['section'][] = ['小学', '初中', '高中'];
+  const { canOpen } = useAuth(); // 老师没开放的年级上锁
   const countOf = (id: string) => words.filter((w) => w.grade === id).length;
   // 某年级的单元总数 / 已测试单元数（用于年级卡片展示进度，无需点进单元即可看到）
   const unitsOf = (id: string) => new Set(words.filter((w) => w.grade === id).map((w) => w.unit ?? 0)).size;
@@ -132,21 +134,33 @@ function GradePick({ nav, p }: { nav: (s: string) => void; p: ReturnType<typeof 
                 .map((g) => {
                   const tested = testedOf(g.id);
                   const total = unitsOf(g.id);
+                  const locked = !canOpen(g.id); // 老师没开放这个年级
                   return (
                     <button
                       key={g.id}
-                      onClick={() => nav(`/vocab/test/grade/${g.id}`)}
-                      className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-soft active:scale-[0.98]"
+                      disabled={locked}
+                      onClick={() => !locked && nav(`/vocab/test/grade/${g.id}`)}
+                      className={`group flex items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                        locked
+                          ? 'border-slate-200 bg-slate-50 opacity-70'
+                          : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-soft active:scale-[0.98]'
+                      }`}
                     >
-                      <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-50 text-3xl">
+                      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-50 text-3xl ${locked ? 'grayscale' : ''}`}>
                         {g.emoji}
                       </span>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-bold text-brand-900">{g.label}</div>
-                        <div className="text-xs text-slate-500">{countOf(g.id)} 个词</div>
-                        <div className="mt-0.5 text-[11px] text-brand-500">已测 {tested}/{total} 单元</div>
+                        <div className="text-xs text-slate-500">
+                          {locked ? '老师未开放' : `${countOf(g.id)} 个词`}
+                        </div>
+                        {!locked && (
+                          <div className="mt-0.5 text-[11px] text-brand-500">已测 {tested}/{total} 单元</div>
+                        )}
                       </div>
-                      <span className="ml-auto text-slate-300 transition group-hover:translate-x-0.5">›</span>
+                      <span className="ml-auto text-slate-300">
+                        {locked ? <span className="text-base">🔒</span> : <span className="transition group-hover:translate-x-0.5">›</span>}
+                      </span>
                     </button>
                   );
                 })}
@@ -538,40 +552,90 @@ function ChoiceQ({ q, answered, onAnswered }: { q: Q; answered: boolean; onAnswe
   );
 }
 
-// 拼写：看中文（含首字母提示），写出完整单词
+// 拼写：看中文，每个字母一个格，直接在对应位置填字母（不用在下面另开输入框）
 function SpellingQ({ q, answered, onAnswered }: { q: Q; answered: boolean; onAnswered: (c: boolean) => void }) {
-  const [val, setVal] = useState('');
-  const hint = q.word.word[0] + ' '.repeat(q.word.word.length - 1).replace(/ /g, ' _');
+  const word = q.word.word;
+  const letters = word.split('');
+  // 只给字母开格子；空格、连字符这类原样显示
+  const slots = letters.map((c, i) => (/[a-zA-Z]/.test(c) ? i : -1)).filter((i) => i >= 0);
+  const [filled, setFilled] = useState<string[]>(() => slots.map(() => ''));
+  const refs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const got = normWord(filled.join(''));
+  const target = normWord(word);
+  // 容错：完全相等，或编辑距离 ≤ 1（允许一个字母误差）
+  const isRight = got.length > 0 && (got === target || editDistance(got, target) <= 1);
+
   const submit = () => {
-    if (answered) return;
-    const target = normWord(q.word.word);
-    const got = normWord(val);
-    // 容错：完全相等，或编辑距离 ≤ 1（允许一个字母误差）
-    const ok = got === target || editDistance(got, target) <= 1;
-    onAnswered(ok);
+    if (answered || got.length === 0) return;
+    onAnswered(isRight);
   };
+
   return (
     <>
-      <div className="text-sm text-slate-500">根据中文写出单词：</div>
+      <div className="text-sm text-slate-500">根据中文拼出单词（一个字母一格）：</div>
       <div className="mt-1 text-2xl font-extrabold text-brand-900">{q.word.meaning}</div>
-      <div className="mt-1 text-xs text-slate-400">提示（首字母）：<span className="font-mono tracking-widest">{hint}</span></div>
-      <input
-        autoFocus
-        value={val}
-        disabled={answered}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-        placeholder="输入英文拼写"
-        className="mt-3 w-full rounded-2xl border-2 border-slate-200 px-4 py-3 text-lg font-semibold outline-none focus:border-brand-400"
-      />
+      <div className="mt-1 text-xs text-slate-400">
+        提示（首字母）：<span className="font-mono tracking-widest">{letters[0]}</span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        {letters.map((ch, i) => {
+          const bi = slots.indexOf(i);
+          if (bi >= 0) {
+            return (
+              <input
+                key={i}
+                ref={(el) => {
+                  refs.current[bi] = el;
+                }}
+                autoFocus={bi === 0}
+                maxLength={1}
+                value={filled[bi]}
+                disabled={answered}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^a-zA-Z]/g, '').slice(-1);
+                  setFilled((prev) => {
+                    const n = prev.slice();
+                    n[bi] = v;
+                    return n;
+                  });
+                  if (v && bi < slots.length - 1) refs.current[bi + 1]?.focus();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submit();
+                  if (e.key === 'Backspace' && !filled[bi] && bi > 0) refs.current[bi - 1]?.focus();
+                }}
+                className={`h-12 w-10 rounded-xl border-2 text-center text-xl font-bold uppercase outline-none ${
+                  answered
+                    ? isRight
+                      ? 'border-emerald-400 bg-emerald-50 text-emerald-700'
+                      : 'border-rose-300 bg-rose-50 text-rose-700'
+                    : 'border-brand-300 text-brand-800 focus:border-brand-500'
+                }`}
+              />
+            );
+          }
+          return (
+            <span key={i} className="px-0.5 text-3xl font-extrabold text-slate-500">
+              {ch}
+            </span>
+          );
+        })}
+      </div>
+
       {!answered && (
-        <button onClick={submit} className="btn-primary mt-3 w-full">提交</button>
+        <button onClick={submit} disabled={got.length === 0} className="btn-primary mt-3 w-full disabled:opacity-40">
+          提交
+        </button>
       )}
       {answered && (
-        <div className={`mt-3 rounded-2xl px-4 py-2 text-sm font-medium ${normWord(val) === normWord(q.word.word) || editDistance(normWord(val), normWord(q.word.word)) <= 1 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-          {normWord(val) === normWord(q.word.word) || editDistance(normWord(val), normWord(q.word.word)) <= 1
-            ? `✅ 正确！${q.word.word}`
-            : `❌ 正确答案：${q.word.word}`}
+        <div
+          className={`mt-3 rounded-2xl px-4 py-2 text-sm font-medium ${
+            isRight ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+          }`}
+        >
+          {isRight ? `✅ 正确！${word}` : `❌ 正确答案：${word}`}
         </div>
       )}
     </>

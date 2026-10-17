@@ -271,12 +271,10 @@ export default function Profile() {
           </button>
         </div>
 
-        <button
-          onClick={() => confirm('确定清除所有学习数据？') && p.resetAll()}
-          className="mt-4 w-full rounded-xl bg-rose-50 py-2.5 text-sm font-medium text-rose-600"
-        >
-          清除学习数据
-        </button>
+        {/* 清除学习数据只有老师能做：学生在这个页面没有这个按钮，避免误点把进度清空 */}
+        <p className="mt-4 rounded-xl bg-slate-50 px-3 py-2.5 text-center text-xs leading-5 text-slate-400">
+          要清除学习数据，请让老师在「老师后台」处理。学生端不提供这个操作。
+        </p>
       </div>
     </div>
   );

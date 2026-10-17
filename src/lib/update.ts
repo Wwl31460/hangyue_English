@@ -10,8 +10,8 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 import { cloud } from './cloud';
 
 /** 当前版本：发新版时这里和 android/app/build.gradle 的 versionCode 要一起改 */
-export const APP_VERSION = '1.2';
-export const APP_VERSION_CODE = 3;
+export const APP_VERSION = '1.3';
+export const APP_VERSION_CODE = 4;
 
 /** 应用站点（更新说明页 + 安装包下载地址），国内直连可达 */
 export const SITE_URL = 'https://hangyue-english.app.workbuddy.host';

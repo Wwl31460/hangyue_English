@@ -17,7 +17,7 @@ import {
   useState,
   ReactNode,
 } from 'react';
-import { cloud, networkHint } from './cloud';
+import { callRpc } from './rpc';
 import type { ProgressData } from './progress';
 
 // 同步状态：local=未登录仅本地；loading=拉取中；saving=保存中；saved=已同步；error=同步失败
@@ -33,6 +33,10 @@ interface AuthCtx {
   user: AuthUser | null;
   ready: boolean; // 是否已确认登录态（首屏未确认前不要闪烁登录按钮）
   syncState: SyncState;
+  // 老师给当前账号开放的年级 id 列表；null = 不限制（全部内容可学）
+  scope: string[] | null;
+  canOpen: (gradeId: string) => boolean; // 这个年级是否已开放
+  refreshScope: () => Promise<void>; // 重新拉一次范围（老师刚改完时用）
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   // 老师后台用：老师口令 + 用户名 + 密码创建（或重置）学生账号
@@ -45,27 +49,51 @@ const Ctx = createContext<AuthCtx | null>(null);
 
 const TOKEN_KEY = 'hy-token'; // 登录票据
 const NAME_KEY = 'hy-name'; // 用户名缓存（断网时也能显示名字）
+const SCOPE_KEY = 'hy-scope'; // 老师给这个账号开放的年级范围（缓存一份，断网也能显示锁）
 
-// 调服务端函数：把返回统一成 {ok, ...} 的对象；网络异常抛中文提示
-async function callRpc(name: string, args: Record<string, unknown>): Promise<any> {
-  let res: any;
-  try {
-    // SDK 不传 schema 泛型时 rpc 的参数类型会被推成 never，这里按实际用法放开类型
-    const db = cloud.database as any;
-    res = await db.rpc(name, args);
-  } catch (e) {
-    throw new Error(networkHint(e));
-  }
-  if (res?.error) throw new Error(networkHint(res.error));
-  // 函数返回单个 jsonb → 直接是对象；返回集合时补一个空数组兜底
-  return Array.isArray(res?.data) ? (res.data[0] ?? null) : res.data;
-}
+// 调服务端函数的统一封装在 lib/rpc.ts（老师后台也用它，避免两份实现走偏）
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [ready, setReady] = useState(false);
   const [syncState, setSyncState] = useState<SyncState>('local');
   const tokenRef = useRef(''); // 当前票据，随登录/登出变化
+
+  // 老师开放的年级范围：null = 全部可学。初值取本机缓存，断网时也能显示锁。
+  const [scope, setScope] = useState<string[] | null>(() => {
+    try {
+      const raw = localStorage.getItem(SCOPE_KEY);
+      const v = raw ? JSON.parse(raw) : null;
+      return Array.isArray(v) && v.length > 0 ? (v as string[]) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const applyScope = useCallback((s: unknown) => {
+    const list = Array.isArray(s) && s.length > 0 ? (s as string[]) : null;
+    setScope(list);
+    try {
+      if (list) localStorage.setItem(SCOPE_KEY, JSON.stringify(list));
+      else localStorage.removeItem(SCOPE_KEY);
+    } catch {
+      /* 存不下不影响使用 */
+    }
+  }, []);
+
+  // 登录后拉一次范围。失败就沿用本机缓存——既不误锁学生，也不擅自放开。
+  const loadScope = useCallback(async () => {
+    if (!tokenRef.current) {
+      applyScope(null);
+      return;
+    }
+    try {
+      const r = await callRpc('hy_my_scope', { p_token: tokenRef.current });
+      if (r?.ok) applyScope(r.scope);
+    } catch {
+      /* 网络问题忽略 */
+    }
+  }, [applyScope]);
 
   // 进入页面：拿本地票据向云端核对一次，确认是否仍是登录态
   useEffect(() => {
@@ -83,6 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (r?.ok) {
           localStorage.setItem(NAME_KEY, r.displayName);
           setUser({ id: r.username, name: r.displayName, role: r.role });
+          void loadScope();
         } else {
           // 票据真的失效了（过期/被登出）：清掉，回到未登录
           localStorage.removeItem(TOKEN_KEY);
@@ -100,7 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadScope]);
 
   const login = useCallback(async (username: string, password: string) => {
     const r = await callRpc('hy_login', { p_username: username, p_password: password });
@@ -110,7 +139,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(TOKEN_KEY, r.token);
     localStorage.setItem(NAME_KEY, r.displayName);
     setUser({ id: r.username, name: r.displayName, role: r.role });
-  }, []);
+    await loadScope();
+  }, [loadScope]);
 
   const logout = useCallback(async () => {
     const token = tokenRef.current;
@@ -119,6 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(NAME_KEY);
     setUser(null);
     setSyncState('local');
+    applyScope(null); // 登出后不再受上一个账号的范围影响
     // 本地已经算登出了；作废服务端票据失败也不影响使用（票据会自然过期）
     if (token) {
       try {
@@ -127,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         /* 忽略 */
       }
     }
-  }, []);
+  }, [applyScope]);
 
   const createStudent = useCallback(async (username: string, password: string, pin: string) => {
     const r = await callRpc('hy_create_student', {
@@ -167,7 +198,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSyncState('saved');
   }, []);
 
-  const api: AuthCtx = { user, ready, syncState, login, logout, createStudent, loadRemote, saveRemote };
+  // 未登录 = 不限制（离线随便学）；登录后按老师设置的范围来
+  const canOpen = useCallback(
+    (gradeId: string) => !user || scope === null || scope.includes(gradeId),
+    [user, scope],
+  );
+
+  const api: AuthCtx = {
+    user,
+    ready,
+    syncState,
+    scope,
+    canOpen,
+    refreshScope: loadScope,
+    login,
+    logout,
+    createStudent,
+    loadRemote,
+    saveRemote,
+  };
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>;
 }
 

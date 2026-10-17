@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { words } from '../data/words';
 import { grades, GradeStage } from '../data/grades';
 import { useProgress } from '../lib/progress';
+import { useAuth } from '../lib/auth';
 
 const SECTION_ORDER: GradeStage['section'][] = ['小学', '初中', '高中'];
 
@@ -9,6 +10,7 @@ const SECTION_ORDER: GradeStage['section'][] = ['小学', '初中', '高中'];
 export default function Vocabulary() {
   const nav = useNavigate();
   const p = useProgress();
+  const { canOpen } = useAuth(); // 老师没开放的年级上锁
   const countOf = (gid: string) => words.filter((w) => w.grade === gid).length;
 
   return (
@@ -38,22 +40,34 @@ export default function Vocabulary() {
             <div className="mt-2 grid grid-cols-2 gap-3">
               {grades
                 .filter((g) => g.section === sec)
-                .map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => nav(`/vocab/grade/${g.id}`)}
-                    className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-soft active:scale-[0.98]"
-                  >
-                    <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-50 text-3xl">
-                      {g.emoji}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-bold text-brand-900">{g.label}</div>
-                      <div className="text-xs text-slate-500">{countOf(g.id)} 个词</div>
-                    </div>
-                    <span className="ml-auto text-slate-300 transition group-hover:translate-x-0.5">›</span>
-                  </button>
-                ))}
+                .map((g) => {
+                  const locked = !canOpen(g.id); // 老师没开放这个年级
+                  return (
+                    <button
+                      key={g.id}
+                      disabled={locked}
+                      onClick={() => !locked && nav(`/vocab/grade/${g.id}`)}
+                      className={`group flex items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                        locked
+                          ? 'border-slate-200 bg-slate-50 opacity-70'
+                          : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-brand-300 hover:shadow-soft active:scale-[0.98]'
+                      }`}
+                    >
+                      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-brand-50 text-3xl ${locked ? 'grayscale' : ''}`}>
+                        {g.emoji}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold text-brand-900">{g.label}</div>
+                        <div className="text-xs text-slate-500">
+                          {locked ? '老师未开放' : `${countOf(g.id)} 个词`}
+                        </div>
+                      </div>
+                      <span className="ml-auto text-slate-300">
+                        {locked ? <span className="text-base">🔒</span> : <span className="transition group-hover:translate-x-0.5">›</span>}
+                      </span>
+                    </button>
+                  );
+                })}
             </div>
           </div>
         ))}

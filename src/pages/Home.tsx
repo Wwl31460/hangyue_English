@@ -6,7 +6,7 @@ import { gradeById, unitTitles } from '../data/grades';
 
 export default function Home() {
   const p = useProgress();
-  const { user, ready, syncState, logout } = useAuth();
+  const { user, ready, syncState, logout, canOpen } = useAuth();
 
   // “继续学习”入口：登录且记录了当前单元时显示
   const contGrade = p.currentGrade ? gradeById[p.currentGrade] : undefined;
@@ -54,8 +54,8 @@ export default function Home() {
         </p>
       </div>
 
-      {/* 继续学习：跳到上次所在的单元 */}
-      {ready && user && contGrade && p.currentUnit ? (
+      {/* 继续学习：跳到上次所在的单元（该年级被老师锁住时不显示） */}
+      {ready && user && contGrade && p.currentUnit && p.currentGrade && canOpen(p.currentGrade) ? (
         <Link
           to={`/vocab/grade/${p.currentGrade}/unit/${p.currentUnit}`}
           className="mt-4 flex items-center justify-between rounded-2xl border border-brand-200 bg-brand-50 p-3.5 shadow-soft"

@@ -135,7 +135,10 @@ export default function Review() {
       {/* 题目卡 */}
       <div className="card mt-3 animate-fadeup">
         <div className="flex items-center justify-between">
-          <div className="truncate text-4xl font-extrabold text-brand-900">{current.word}</div>
+          {/* 长单词换行显示，不用省略号截断 */}
+          <div className="min-w-0 flex-1 break-words text-3xl font-extrabold leading-tight text-brand-900">
+            {current.word}
+          </div>
           <button onClick={() => speak(current.word)} className="btn-ghost !py-2 text-sm">
             🔊 听
           </button>
