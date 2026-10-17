@@ -9,6 +9,11 @@ K12 英语单词与听读练习应用。一套前端代码，同时跑在 **手�
 - 同步：老师后台开学生账号，同一账号可在手机和电脑之间同步进度
 - 更新：App 内自动检查新版本，一键下载安装
 
+## 获取安装包
+
+- 安卓：仓库里的 `安装包/hangyue-english-<版本>.apk`，或到下载页 <https://hangyue-english.app.workbuddy.host/>
+- 桌面端（Windows）：需要自行构建（见「构建」），安装包较大未入库
+
 ## 技术栈
 
 React 18 + TypeScript + Vite + Tailwind CSS，用 Capacitor 打包成 Android 应用，
@@ -23,9 +28,12 @@ src/                  前端源码（三个端共用）
 electron/main.cjs     桌面端主进程
 android/              Capacitor 生成的安卓工程
 scripts/              词库生成、打包、验证等辅助脚本
-release/web/          发布到国内站点的下载页 + 更新清单 + 安装包
+安装包/                已打好的安卓安装包
 version.json          更新清单的静态副本（给人看的；App 实际读云端接口，见「后端与账号」）
 ```
+
+以下都是**本地构建产物，不入库**（`.gitignore` 已排除），clone 下来不会有：
+`dist/`、`release/`（其中 `release/web/` 是下载站内容）、`keystore/`（签名密钥）、`node_modules/`。
 
 ## 后端与账号
 
